@@ -2348,53 +2348,95 @@ pub fn is_instantiable(cx: ctxt, r_ty: t) -> bool {
     !subtypes_require(cx, &mut seen, r_ty, r_ty)
 }
 
-pub fn type_structurally_contains(cx: ctxt, ty: t, test: |x: &sty| -> bool)
-                                  -> bool {
-    let sty = &get(ty).sty;
-    debug!("type_structurally_contains: {}",
-           ::util::ppaux::ty_to_str(cx, ty));
-    if test(sty) { return true; }
-    match *sty {
-      ty_enum(did, ref substs) => {
-        for variant in (*enum_variants(cx, did)).iter() {
-            for aty in variant.args.iter() {
-                let sty = subst(cx, substs, *aty);
-                if type_structurally_contains(cx, sty, |x| test(x)) { return true; }
-            }
-        }
-        return false;
-      }
-      ty_struct(did, ref substs) => {
-        let r = lookup_struct_fields(cx, did);
-        for field in r.iter() {
-            let ft = lookup_field_type(cx, did, field.id, substs);
-            if type_structurally_contains(cx, ft, |x| test(x)) { return true; }
-        }
-        return false;
-      }
-
-      ty_tup(ref ts) => {
-        for tt in ts.iter() {
-            if type_structurally_contains(cx, *tt, |x| test(x)) { return true; }
-        }
-        return false;
-      }
-      ty_vec(ref mt, vstore_fixed(_)) => {
-        return type_structurally_contains(cx, mt.ty, test);
-      }
-      _ => return false
-    }
+// Needed to distinguish between types that are recursive with themselves,
+// and types that contain a different recursive type.
+#[deriving(Eq)]
+pub enum Repr {
+    Representable,
+    SelfRecursive,
+    ContainsRecursive,
 }
 
-pub fn type_structurally_contains_uniques(cx: ctxt, ty: t) -> bool {
-    return type_structurally_contains(cx, ty, |sty| {
-        match *sty {
-          ty_uniq(_) |
-          ty_vec(_, vstore_uniq) |
-          ty_str(vstore_uniq) => true,
-          _ => false,
+// True if `ty` contains no structural recursion. This is necessary
+// for structs and enums to have finite size.
+pub fn is_type_representable(cx: ctxt, ty: t) -> Repr {
+
+    // Does the type `ty` directly (without indirection through a pointer)
+    // contain any types on stack `seen`?
+    fn type_structurally_recursive(cx: ctxt, ty: t,
+                                   seen: &mut ~[DefId]) -> Repr {
+        debug!("type_structurally_recursive: {}",
+               ::util::ppaux::ty_to_str(cx, ty));
+
+        // Compare current type to previously seen types (stack 'seen')
+        match get(ty).sty {
+            ty_struct(did, _) |
+            ty_enum(did, _) => {
+                for (i, &seen_did) in seen.iter().enumerate() {
+                    if did == seen_did {
+                        return if i == 0 { SelfRecursive }
+                               else { ContainsRecursive }
+                    }
+                }
+            }
+            _ => (),
         }
-    });
+
+        // Check inner types
+        match get(ty).sty {
+            // Tuples
+            ty_tup(ref ts) => {
+                let mut r = Representable;
+                for t in ts.iter() {
+                    r = type_structurally_recursive(cx, *t, seen);
+                    if r != Representable { break; }
+                }
+                r
+            }
+            // Non-zero fixed-length vectors.
+            ty_vec(mt, vstore_fixed(len)) if len != 0 => {
+                type_structurally_recursive(cx, mt.ty, seen)
+            }
+
+            // Push struct and enum def-ids/substs onto `seen` before recursing.
+            ty_struct(did, ref substs) => {
+                seen.push(did);
+                let fields = struct_fields(cx, did, substs);
+                let mut r = Representable;
+                for f in fields.iter() {
+                    r = type_structurally_recursive(cx, f.mt.ty, seen);
+                    if r != Representable { break; }
+                }
+                seen.pop();
+                r
+            }
+            ty_enum(did, ref substs) => {
+                seen.push(did);
+                let vs = enum_variants(cx, did);
+                let mut r = Representable;
+                'outer: for variant in vs.iter() {
+                    for aty in variant.args.iter() {
+                        let sty = subst(cx, substs, *aty);
+                        r = type_structurally_recursive(cx, sty, seen);
+                        if r != Representable { break 'outer }
+                    }
+                };
+                seen.pop();
+                r
+            }
+
+            _ => Representable,
+        }
+    }
+
+    debug!("is_type_representable: {}",
+           ::util::ppaux::ty_to_str(cx, ty));
+
+    // To avoid a stack overflow when checking an enum with a variant that
+    // that contains a different, structurally recursive type, maintain a
+    // stack of seen types and check recursion for each of them (issue #3008).
+    let mut seen: ~[DefId] = ~[];
+    type_structurally_recursive(cx, ty, &mut seen)
 }
 
 pub fn type_is_trait(ty: t) -> bool {
