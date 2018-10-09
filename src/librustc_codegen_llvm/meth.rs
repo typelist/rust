@@ -17,7 +17,7 @@ use monomorphize;
 use type_::Type;
 use value::Value;
 
-use rustc::ty::{self, Ty};
+use rustc::ty::{self, Ty, ToPolyTraitRef};
 use rustc::ty::layout::HasDataLayout;
 use debuginfo;
 
@@ -114,26 +114,32 @@ pub fn get_vtable(
     //
     // that gets us to a vtable for just that trait?
 
+    // so, super_predicates_of goes into all levels
+    // which doesn't necessarily matter? we just need to construct a graph
+
     if let Some(trait_ref) = trait_ref {
+        let trait_ref_with_self = trait_ref.with_self_ty(tcx, ty);
+        let mut v: Vec<_> = vec![trait_ref_with_self];
+        v.extend(
+            tcx.super_predicates_of(trait_ref.def_id())
+                .predicates.iter()
+                .map(|(p, _)| p.subst_supertrait(tcx, &trait_ref_with_self))
+                .map(|p| {
+                    // Unwrap ty::Predicate to ty::PolyTraitPredicate,
+                    // extract ty::PolyTraitRef
+                    if let ty::Predicate::Trait(poly_trait_predicate) = p {
+                        poly_trait_predicate.to_poly_trait_ref()
+                    } else {
+                        bug!("expected trait, got {:?}", p)
+                    }
+                }));
 
+//        debug!("supertraits: ty={:?} trait_ref={:?} supertrait_refs={:?}",
+//               ty, trait_ref.with_self_ty(tcx, ty), supertrait_refs);
 
-        //
-        // is that an issue?
-        //
-        //
-        // inheritance isn't specialized. so the issue is
-        //
-        // how to get the correct substs for UpTrait, so we can [look up] the vtable?
+        debug!("supertraits: {:?}", v);
 
- //       for pred in tcx.super_predicates_of(trait_ref.def_id())
- //                   .predicates {
-            // wait why does super_predicates_of only take a def_id and no
-            // substs and how do i unfuck that?
-            //
-            // MyTrait<X> : UpTrait<X>
-            //
-            // so if trait_ref is MyTrait<Foobar>, we still just get the
-            // supertraits from MyTrait<X> -- a placeholder
+        //let s
 
 /*
 
