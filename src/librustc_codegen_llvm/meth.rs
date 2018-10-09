@@ -78,6 +78,21 @@ pub fn get_vtable(
 
     debug!("get_vtable(ty={:?}, trait_ref={:?})", ty, trait_ref);
 
+// // In pseudocode:
+// fn vtable_layout(t: Trait) -> [VtableElement] {
+//     let vtable = []
+//     t.supertraits.sort()
+//     if t.supertraits.is_empty {
+//         vtable = [drop_glue, alignment, size] // metadata
+//     } else {
+//         for st in t.supertraits {
+//             vtable ++= vtable_layout(st)
+//         }
+//     }
+//     vtable ++= t.methods
+//     vtable
+// }
+
     // Check the cache.
     if let Some(&val) = cx.vtables.borrow().get(&(ty, trait_ref)) {
         return val;
@@ -93,7 +108,59 @@ pub fn get_vtable(
         C_usize(cx, align.abi())
     ].iter().cloned().collect();
 
+    // do a look-up based on:
+    // ty
+    // trait_ref
+    //
+    // that gets us to a vtable for just that trait?
+
     if let Some(trait_ref) = trait_ref {
+
+
+        //
+        // is that an issue?
+        //
+        //
+        // inheritance isn't specialized. so the issue is
+        //
+        // how to get the correct substs for UpTrait, so we can [look up] the vtable?
+
+ //       for pred in tcx.super_predicates_of(trait_ref.def_id())
+ //                   .predicates {
+            // wait why does super_predicates_of only take a def_id and no
+            // substs and how do i unfuck that?
+            //
+            // MyTrait<X> : UpTrait<X>
+            //
+            // so if trait_ref is MyTrait<Foobar>, we still just get the
+            // supertraits from MyTrait<X> -- a placeholder
+
+/*
+
+        for pred in tcx.super_predicates_of(trait_ref.def_id())
+                    .predicates {
+            if let (ty::Predicate::Trait(t), _) = pred {
+                // bad idea to call skip_binder?
+                let t = t.skip_binder().trait_ref;
+                debug!("super_predicates_of returned Trait. def_id: {:?}. substs: {:?}",
+                       t.def_id, t.substs);
+            } else {
+                let to_print = match pred {
+                    (ty::Predicate::Subtype(..), _) => "Subtype",
+                    (ty::Predicate::Trait(..), _) => "Trait",
+                    (ty::Predicate::RegionOutlives(..), _) => "RegionOutlives",
+                    (ty::Predicate::TypeOutlives(..), _) => "TypeOutlives",
+                    (ty::Predicate::Projection(..), _) => "Projection",
+                    (ty::Predicate::WellFormed(..), _) => "WellFormed",
+                    (ty::Predicate::ObjectSafe(..), _) => "ObjectSafe",
+                    (ty::Predicate::ClosureKind(..), _) => "ClosureKind",
+                    (ty::Predicate::ConstEvaluatable(..), _) => "ConstEvaluatable",
+                };
+                debug!("super_predicates_of returned {}", to_print);
+            }
+        };
+*/
+
         let trait_ref = trait_ref.with_self_ty(tcx, ty);
         let methods = tcx.vtable_methods(trait_ref);
         let methods = methods.iter().cloned().map(|opt_mth| {
@@ -108,7 +175,11 @@ pub fn get_vtable(
     let align = cx.data_layout().pointer_align;
     let vtable = consts::addr_of(cx, vtable_const, align, Some("vtable"));
 
+// TODO: I'm sure i have to fix this after so... commenting it out for now
     debuginfo::create_vtable_metadata(cx, ty, vtable);
+
+
+
 
     cx.vtables.borrow_mut().insert((ty, trait_ref), vtable);
     vtable
