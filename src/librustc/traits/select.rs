@@ -2988,7 +2988,7 @@ impl<'cx, 'gcx, 'tcx> SelectionContext<'cx, 'gcx, 'tcx> {
 
         let mut upcast_trait_ref = None;
         let mut nested = vec![];
-        let vtable_base;
+        let mut vtable_base;
 
         {
             let tcx = self.tcx();
@@ -2999,22 +2999,49 @@ impl<'cx, 'gcx, 'tcx> SelectionContext<'cx, 'gcx, 'tcx> {
             // where we can unify because otherwise select would have
             // reported an ambiguity. (When we do find a match, also
             // record it for later.)
-            let nonmatching = util::supertraits(tcx, poly_trait_ref).take_while(
-                |&t| match self.commit_if_ok(|this, _| this.match_poly_trait_ref(obligation, t)) {
+            /*let nonmatching = util::supertraits(tcx, poly_trait_ref).take_while(*/
+            for t in util::supertraits(tcx, poly_trait_ref) {
+                /*|&t|*/ match self.commit_if_ok(|this, _| this.match_poly_trait_ref(obligation, t)) {
                     Ok(obligations) => {
                         upcast_trait_ref = Some(t);
                         nested.extend(obligations);
-                        false
+                        /*false*/
+                        break
                     }
-                    Err(_) => true,
-                },
-            );
+                    Err(_) => /*true*/ continue,
+                }/*,
+            );*/
+            }
 
+            let upcast_trait_ref = upcast_trait_ref.unwrap();
+
+            // NOTE: Because supertrait vtables (and glue+size+align) may now
+            //       occur more than once, this algorithm had to change.
+            vtable_base = 0;
+
+            let was_stopped = util::recurse_through_supertraits_while(
+                tcx, upcast_trait_ref,
+                &mut |t: ty::PolyTraitRef<'tcx>, is_leaf| {
+                    if is_leaf {
+                        vtable_base += 3;
+                    }
+                    if t.eq(&upcast_trait_ref) {
+                        return false;
+                    }
+                    vtable_base += tcx.count_own_vtable_entries(t);
+                    true
+                });
+
+            assert!(was_stopped);
+
+
+        /*
             // Additionally, for each of the nonmatching predicates that
             // we pass over, we sum up the set of number of vtable
             // entries, so that we can compute the offset for the selected
             // trait.
             vtable_base = nonmatching.map(|t| tcx.count_own_vtable_entries(t)).sum();
+        */
         }
 
         VtableObjectData {

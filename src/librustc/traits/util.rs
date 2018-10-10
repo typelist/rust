@@ -453,16 +453,17 @@ pub fn get_supertraits<'a, 'gcx, 'tcx>(
 // TODO: Issue with cycles? Mentioned in traits::... comment
 // TODO: Avoid redundant vtables, traversals, and duplication in a
 //       single vtable
-pub fn recurse_through_supertraits<'a, 'gcx, 'tcx, F>(
+pub fn recurse_through_supertraits_while<'a, 'gcx, 'tcx, F>(
     tcx: TyCtxt<'a, 'gcx, 'tcx>,
     trait_ref_with_self: ty::PolyTraitRef<'tcx>,
-    closure: &mut F)
-    where F: FnMut(ty::PolyTraitRef<'tcx>, bool)
+    closure: &mut F) -> bool
+    where F: FnMut(ty::PolyTraitRef<'tcx>, bool) -> bool // Return false for early exit
 {
     let mut supertraits = get_supertraits(tcx, trait_ref_with_self);
 
     // TODO: Is this step necessary or is the order already deterministic?
     //       (including across compilation units)
+    // TODO: Is the associated_items ordering different...?
     supertraits.sort_by(|a, b| {
         let (a, b) = (a.skip_binder(), b.skip_binder());
         match a.def_id.cmp(&b.def_id) {
@@ -472,9 +473,24 @@ pub fn recurse_through_supertraits<'a, 'gcx, 'tcx, F>(
         a.substs.cmp(&b.substs)
     });
     for supertrait in supertraits.iter() {
-        recurse_through_supertraits(tcx, *supertrait, closure);
+        if !recurse_through_supertraits_while(tcx, *supertrait, closure) {
+            return false;
+        }
     }
-    closure(trait_ref_with_self, supertraits.is_empty());
+    if !closure(trait_ref_with_self, supertraits.is_empty()) {
+        return false;
+    }
+    true
+}
+
+pub fn recurse_through_supertraits<'a, 'gcx, 'tcx, F>(
+    tcx: TyCtxt<'a, 'gcx, 'tcx>,
+    trait_ref_with_self: ty::PolyTraitRef<'tcx>,
+    closure: &mut F)
+    where F: FnMut(ty::PolyTraitRef<'tcx>, bool)
+{
+    recurse_through_supertraits_while(tcx, trait_ref_with_self,
+                                      &mut |a, b| { closure(a, b); true });
 }
 
 impl<'a, 'gcx, 'tcx> TyCtxt<'a, 'gcx, 'tcx> {
@@ -510,10 +526,15 @@ impl<'a, 'gcx, 'tcx> TyCtxt<'a, 'gcx, 'tcx> {
             .filter(|r| r.def_id() == target_trait_def_id)
             .collect()
     }
+    /// (For leaf traits
+    /// that have no supertraits, this includes 3 words for drop glue, size, and
+    /// alignment.)
 
-    /// Given a trait `trait_ref`, returns the number of vtable entries
-    /// that come from `trait_ref`, excluding its supertraits. Used in
-    /// computing the vtable base for an upcast trait of a trait object.
+    /// Given a trait `trait_ref`, returns the number of vtable entries that
+    /// come from `trait_ref`, excluding its supertraits. Used in computing the
+    /// vtable base for an upcast trait of a trait object. Note that the vtable
+    /// base is NOT just the sum of count_own_vtable_entries for supertraits,
+    /// but also includes extra words for drop glue, size, and alignment.
     pub fn count_own_vtable_entries(self, trait_ref: ty::PolyTraitRef<'tcx>) -> usize {
         let mut entries = 0;
         // Count number of methods and add them to the total offset.
@@ -532,6 +553,9 @@ impl<'a, 'gcx, 'tcx> TyCtxt<'a, 'gcx, 'tcx> {
     pub fn get_vtable_index_of_object_method<N>(self,
                                                 object: &super::VtableObjectData<'tcx, N>,
                                                 method_def_id: DefId) -> usize {
+
+        // TODO: make this match sort order
+
         // Count number of methods preceding the one we are selecting and
         // add them to the total offset.
         // Skip over associated types and constants.
@@ -549,6 +573,15 @@ impl<'a, 'gcx, 'tcx> TyCtxt<'a, 'gcx, 'tcx> {
 
         bug!("get_vtable_index_of_object_method: {:?} was not found",
              method_def_id);
+
+//        recurse_through_supertraits(self, 
+//
+//pub fn recurse_through_supertraits<'a, 'gcx, 'tcx, F>(
+//    tcx: TyCtxt<'a, 'gcx, 'tcx>,
+//    trait_ref_with_self: ty::PolyTraitRef<'tcx>,
+//    closure: &mut F)
+//    where F: FnMut(ty::PolyTraitRef<'tcx>, bool)
+
     }
 
     pub fn closure_trait_ref_and_return_type(self,

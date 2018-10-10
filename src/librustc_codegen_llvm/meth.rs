@@ -31,7 +31,7 @@ pub const ALIGN: VirtualIndex = VirtualIndex(2);
 
 impl<'a, 'tcx> VirtualIndex {
     pub fn from_index(index: usize) -> Self {
-        VirtualIndex(index as u64 + 3)
+        VirtualIndex(index as u64)
     }
 
     pub fn get_fn(self, bx: &Builder<'a, 'll, 'tcx>,
