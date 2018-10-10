@@ -130,13 +130,10 @@ pub fn get_vtable(
             closure: &mut F)
             where F: FnMut(&CodegenCx<'ll, 'tcx>, ty::PolyTraitRef<'tcx>, bool)
         {
-            let supertraits = get_supertraits(cx, trait_ref_with_self);
-
-            closure(cx, trait_ref_with_self, supertraits.is_empty());
+            let mut supertraits = get_supertraits(cx, trait_ref_with_self);
 
             // TODO: Is this step necessary or is the order already deterministic?
             //       (including across compilation units)
-            let mut supertraits = supertraits;
             supertraits.sort_by(|a, b| {
                 let (a, b) = (a.skip_binder(), b.skip_binder());
                 match a.def_id.cmp(&b.def_id) {
@@ -145,10 +142,10 @@ pub fn get_vtable(
                 }
                 a.substs.cmp(&b.substs)
             });
-            let supertraits = supertraits;
-            for supertrait in supertraits {
-                recurse_through_supertraits(cx, supertrait, closure);
+            for supertrait in supertraits.iter() {
+                recurse_through_supertraits(cx, *supertrait, closure);
             }
+            closure(cx, trait_ref_with_self, supertraits.is_empty());
         }
 
         let trait_ref_with_self = trait_ref.with_self_ty(tcx, ty);
