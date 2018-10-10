@@ -81,10 +81,6 @@ pub fn get_vtable(
 
     debug!("get_vtable(ty={:?}, trait_ref={:?})", ty, trait_ref);
 
-    if let Some(trait_ref) = trait_ref {
-        cx.vtable_requests.borrow_mut().push((ty, trait_ref));
-    }
-
     // Check the cache.
     if let Some(&val) = cx.vtables.borrow().get(&(ty, trait_ref)) {
         return val;
