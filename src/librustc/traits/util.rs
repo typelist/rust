@@ -463,7 +463,6 @@ pub fn recurse_through_supertraits_while<'a, 'gcx, 'tcx, F>(
 
     // TODO: Is this step necessary or is the order already deterministic?
     //       (including across compilation units)
-    // TODO: Is the associated_items ordering different...?
     supertraits.sort_by(|a, b| {
         let (a, b) = (a.skip_binder(), b.skip_binder());
         match a.def_id.cmp(&b.def_id) {
@@ -526,9 +525,6 @@ impl<'a, 'gcx, 'tcx> TyCtxt<'a, 'gcx, 'tcx> {
             .filter(|r| r.def_id() == target_trait_def_id)
             .collect()
     }
-    /// (For leaf traits
-    /// that have no supertraits, this includes 3 words for drop glue, size, and
-    /// alignment.)
 
     /// Given a trait `trait_ref`, returns the number of vtable entries that
     /// come from `trait_ref`, excluding its supertraits. Used in computing the

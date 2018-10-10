@@ -84,8 +84,15 @@ pub fn get_vtable(
         return val;
     }
 
-    // Not in the cache. Build it.
-    let nullptr = C_null(Type::i8p(cx));
+    // TODO: Removed null pointers from vtable -- is that conceptually sound?
+    //       This depends on which methods can be called on a trait object,
+    //       right?
+    //       If there are some trait objects for which a method would be NULL
+    //       that doesn't work, so... we're ok?
+    //       The important thing is to make sure we skip exactly the same
+    //       methods for all ways of creating this trait object.
+//    // Not in the cache. Build it.
+//    let nullptr = C_null(Type::i8p(cx));
 
     let (size, align) = cx.size_and_align_of(ty);
     let glue_size_align = [
@@ -108,9 +115,9 @@ pub fn get_vtable(
             let starting_len = v.len();
             v.extend(
                 own_vtable_methods(cx.tcx, trait_ref_with_self)
-                .map(|opt| { opt.map_or(nullptr, |(def_id, substs)| {
+                .map(|(def_id, substs)| {
                     callee::resolve_and_get_fn(cx, def_id, substs)
-                })}));
+                }));
             debug!("get_vtable: Added {:?} methods", v.len() - starting_len);
         });
 

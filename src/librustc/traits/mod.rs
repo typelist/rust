@@ -889,17 +889,18 @@ fn substitute_normalize_and_test_predicates<'a, 'tcx>(tcx: TyCtxt<'a, 'tcx, 'tcx
     result
 }
 
+#[inline]
 pub fn own_vtable_methods<'a, 'tcx>(
     tcx: TyCtxt<'a, 'tcx, 'tcx>,
     trait_ref: ty::PolyTraitRef<'tcx>)
-    -> impl Iterator<Item = Option<(DefId, &'tcx Substs<'tcx>)>> + 'a
+    -> impl Iterator<Item = (DefId, &'tcx Substs<'tcx>)> + 'a
 {
     tcx.associated_items(trait_ref.def_id())
         // Skip over associated types and constants.
         .filter(|item| item.kind == ty::AssociatedKind::Method)
         // Now list each method's DefId and Substs (for within its trait).
         // If the method can never be called from this object, produce None.
-        .map(move |trait_method| {
+        .filter_map(move |trait_method| {
             debug!("own_vtable_methods: trait_method={:?}", trait_method);
             let def_id = trait_method.def_id;
 
@@ -944,21 +945,13 @@ pub fn own_vtable_methods<'a, 'tcx>(
         })
 }
 
-/*
-fn supertrait_tree<'a, 'tcx>(
-    tcx: TyCtxt<'a, 'tcx, 'tcx>,
-    trait_ref: ty::PolyTraitRef<'tcx>)
-{
-}
-*/
-
 /// Given a trait `trait_ref`, iterates the vtable entries
 /// that come from `trait_ref`, including its supertraits.
 #[inline] // FIXME(#35870) Avoid closures being unexported due to impl Trait.
 fn vtable_methods<'a, 'tcx>(
     tcx: TyCtxt<'a, 'tcx, 'tcx>,
     trait_ref: ty::PolyTraitRef<'tcx>)
-    -> Lrc<Vec<Option<(DefId, &'tcx Substs<'tcx>)>>>
+    -> Lrc<Vec<(DefId, &'tcx Substs<'tcx>)>>
 {
     debug!("vtable_methods({:?})", trait_ref);
 
