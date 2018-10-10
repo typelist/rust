@@ -3001,7 +3001,9 @@ impl<'cx, 'gcx, 'tcx> SelectionContext<'cx, 'gcx, 'tcx> {
             // record it for later.)
             /*let nonmatching = util::supertraits(tcx, poly_trait_ref).take_while(*/
             for t in util::supertraits(tcx, poly_trait_ref) {
+                debug!("confirm_object_candidate first closure");
                 /*|&t|*/ match self.commit_if_ok(|this, _| this.match_poly_trait_ref(obligation, t)) {
+
                     Ok(obligations) => {
                         upcast_trait_ref = Some(t);
                         nested.extend(obligations);
@@ -3019,12 +3021,14 @@ impl<'cx, 'gcx, 'tcx> SelectionContext<'cx, 'gcx, 'tcx> {
             //       occur more than once, this algorithm had to change.
             vtable_base = 0;
 
-            let was_stopped = util::recurse_through_supertraits_while(
-                tcx, upcast_trait_ref,
+            let was_not_stopped = util::recurse_through_supertraits_while(
+                tcx, poly_trait_ref,
                 &mut |t: ty::PolyTraitRef<'tcx>, is_leaf| {
+                    debug!("confirm_object_candidate second closure");
                     if is_leaf {
                         vtable_base += 3;
                     }
+                    /*if self.match_poly_trait_ref(obligation, t).is_ok() {*/
                     if t.eq(&upcast_trait_ref) {
                         return false;
                     }
@@ -3032,6 +3036,7 @@ impl<'cx, 'gcx, 'tcx> SelectionContext<'cx, 'gcx, 'tcx> {
                     true
                 });
 
+            let was_stopped = !was_not_stopped;
             assert!(was_stopped);
 
 

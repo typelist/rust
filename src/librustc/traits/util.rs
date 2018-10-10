@@ -461,6 +461,8 @@ pub fn recurse_through_supertraits_while<'a, 'gcx, 'tcx, F>(
     closure: &mut F) -> bool
     where F: FnMut(ty::PolyTraitRef<'tcx>, bool) -> bool // Return false for early exit
 {
+    debug!("recurse_through_supertraits_while");
+
     let mut supertraits = get_supertraits(tcx, trait_ref_with_self);
 
     // TODO: Is this step necessary or is the order already deterministic?
