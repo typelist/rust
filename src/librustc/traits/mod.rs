@@ -56,6 +56,7 @@ pub use self::util::Supertraits;
 pub use self::util::supertrait_def_ids;
 pub use self::util::SupertraitDefIds;
 pub use self::util::transitive_bounds;
+pub use self::util::recurse_through_supertraits;
 
 #[allow(dead_code)]
 pub mod auto_trait;

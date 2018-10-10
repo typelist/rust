@@ -17,12 +17,10 @@ use monomorphize;
 use type_::Type;
 use value::Value;
 
-use rustc::ty::{self, Ty, ToPolyTraitRef};
+use rustc::ty::{self, Ty};
 use rustc::ty::layout::HasDataLayout;
-use rustc::traits::own_vtable_methods;
+use rustc::traits::{own_vtable_methods, recurse_through_supertraits};
 use debuginfo;
-
-use std::cmp::Ordering;
 
 #[derive(Copy, Clone, Debug)]
 pub struct VirtualIndex(u64);
@@ -97,62 +95,11 @@ pub fn get_vtable(
     ];
 
     if let Some(trait_ref) = trait_ref {
-
-        fn get_supertraits(
-            cx: &CodegenCx<'ll, 'tcx>,
-            trait_ref_with_self: ty::PolyTraitRef<'tcx>)
-            //-> impl Iterator<Item = ty::PolyTraitRef<'tcx>> + 'll
-            -> Vec<ty::PolyTraitRef<'tcx>>
-        {
-            let tcx = cx.tcx;
-            tcx.super_predicates_of(trait_ref_with_self.def_id())
-                .predicates.iter()
-                .map(|(p, _)| p.subst_supertrait(tcx, &trait_ref_with_self))
-                .map(|p| {
-                    // Unwrap ty::Predicate to ty::PolyTraitPredicate,
-                    // extract ty::PolyTraitRef
-                    if let ty::Predicate::Trait(poly_trait_predicate) = p {
-                        poly_trait_predicate.to_poly_trait_ref()
-                    } else {
-                        bug!("expected trait, got {:?}", p)
-                    }
-                })
-                .collect()
-        }
-
-        // Recurse through supertraits
-        // TODO: Issue with cycles? Mentioned in traits::... comment
-        // TODO: Avoid redundant vtables, traversals, and duplication in a
-        //       single vtable
-        fn recurse_through_supertraits<'ll, 'tcx, F>(
-            cx: &CodegenCx<'ll, 'tcx>,
-            trait_ref_with_self: ty::PolyTraitRef<'tcx>,
-            closure: &mut F)
-            where F: FnMut(&CodegenCx<'ll, 'tcx>, ty::PolyTraitRef<'tcx>, bool)
-        {
-            let mut supertraits = get_supertraits(cx, trait_ref_with_self);
-
-            // TODO: Is this step necessary or is the order already deterministic?
-            //       (including across compilation units)
-            supertraits.sort_by(|a, b| {
-                let (a, b) = (a.skip_binder(), b.skip_binder());
-                match a.def_id.cmp(&b.def_id) {
-                    ord @ Ordering::Less | ord @ Ordering::Greater => { return ord; }
-                    _ => ()
-                }
-                a.substs.cmp(&b.substs)
-            });
-            for supertrait in supertraits.iter() {
-                recurse_through_supertraits(cx, *supertrait, closure);
-            }
-            closure(cx, trait_ref_with_self, supertraits.is_empty());
-        }
-
         let trait_ref_with_self = trait_ref.with_self_ty(tcx, ty);
         let mut v = Vec::new();
 
-        recurse_through_supertraits(cx, trait_ref_with_self,
-            &mut |cx, trait_ref_with_self, is_leaf| {
+        recurse_through_supertraits(tcx, trait_ref_with_self,
+            &mut |trait_ref_with_self, is_leaf| {
             if is_leaf {
                 debug!("get_vtable: Adding [glue, size, align]");
                 v.extend(glue_size_align.iter());

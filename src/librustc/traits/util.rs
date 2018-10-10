@@ -16,6 +16,8 @@ use util::nodemap::FxHashSet;
 use hir::{self};
 use traits::specialize::specialization_graph::NodeItem;
 
+use std::cmp::Ordering;
+
 use super::{Obligation, ObligationCause, PredicateObligation, SelectionContext, Normalized};
 
 fn anonymize_predicate<'a, 'gcx, 'tcx>(tcx: TyCtxt<'a, 'gcx, 'tcx>,
@@ -425,6 +427,54 @@ pub fn predicate_for_trait_ref<'tcx>(
         recursion_depth,
         predicate: trait_ref.to_predicate(),
     }
+}
+
+pub fn get_supertraits<'a, 'gcx, 'tcx>(
+    tcx: TyCtxt<'a, 'gcx, 'tcx>,
+    trait_ref_with_self: ty::PolyTraitRef<'tcx>)
+    -> Vec<ty::PolyTraitRef<'tcx>>
+{
+    tcx.super_predicates_of(trait_ref_with_self.def_id())
+        .predicates.iter()
+        .map(|(p, _)| p.subst_supertrait(tcx, &trait_ref_with_self))
+        .map(|p| {
+            // Unwrap ty::Predicate to ty::PolyTraitPredicate,
+            // extract ty::PolyTraitRef
+            if let ty::Predicate::Trait(poly_trait_predicate) = p {
+                poly_trait_predicate.to_poly_trait_ref()
+            } else {
+                bug!("expected trait, got {:?}", p)
+            }
+        })
+        .collect()
+}
+
+// Recurse through supertraits
+// TODO: Issue with cycles? Mentioned in traits::... comment
+// TODO: Avoid redundant vtables, traversals, and duplication in a
+//       single vtable
+pub fn recurse_through_supertraits<'a, 'gcx, 'tcx, F>(
+    tcx: TyCtxt<'a, 'gcx, 'tcx>,
+    trait_ref_with_self: ty::PolyTraitRef<'tcx>,
+    closure: &mut F)
+    where F: FnMut(ty::PolyTraitRef<'tcx>, bool)
+{
+    let mut supertraits = get_supertraits(tcx, trait_ref_with_self);
+
+    // TODO: Is this step necessary or is the order already deterministic?
+    //       (including across compilation units)
+    supertraits.sort_by(|a, b| {
+        let (a, b) = (a.skip_binder(), b.skip_binder());
+        match a.def_id.cmp(&b.def_id) {
+            ord @ Ordering::Less | ord @ Ordering::Greater => { return ord; }
+            _ => ()
+        }
+        a.substs.cmp(&b.substs)
+    });
+    for supertrait in supertraits.iter() {
+        recurse_through_supertraits(tcx, *supertrait, closure);
+    }
+    closure(trait_ref_with_self, supertraits.is_empty());
 }
 
 impl<'a, 'gcx, 'tcx> TyCtxt<'a, 'gcx, 'tcx> {
