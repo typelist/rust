@@ -888,7 +888,7 @@ fn substitute_normalize_and_test_predicates<'a, 'tcx>(tcx: TyCtxt<'a, 'tcx, 'tcx
     result
 }
 
-fn own_vtable_methods<'a, 'tcx>(
+pub fn own_vtable_methods<'a, 'tcx>(
     tcx: TyCtxt<'a, 'tcx, 'tcx>,
     trait_ref: ty::PolyTraitRef<'tcx>)
     -> impl Iterator<Item = Option<(DefId, &'tcx Substs<'tcx>)>> + 'a

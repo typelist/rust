@@ -19,7 +19,10 @@ use value::Value;
 
 use rustc::ty::{self, Ty, ToPolyTraitRef};
 use rustc::ty::layout::HasDataLayout;
+use rustc::traits::own_vtable_methods;
 use debuginfo;
+
+use std::cmp::Ordering;
 
 #[derive(Copy, Clone, Debug)]
 pub struct VirtualIndex(u64);
@@ -78,20 +81,9 @@ pub fn get_vtable(
 
     debug!("get_vtable(ty={:?}, trait_ref={:?})", ty, trait_ref);
 
-// // In pseudocode:
-// fn vtable_layout(t: Trait) -> [VtableElement] {
-//     let vtable = []
-//     t.supertraits.sort()
-//     if t.supertraits.is_empty {
-//         vtable = [drop_glue, alignment, size] // metadata
-//     } else {
-//         for st in t.supertraits {
-//             vtable ++= vtable_layout(st)
-//         }
-//     }
-//     vtable ++= t.methods
-//     vtable
-// }
+    if let Some(trait_ref) = trait_ref {
+        cx.vtable_requests.borrow_mut().push((ty, trait_ref));
+    }
 
     // Check the cache.
     if let Some(&val) = cx.vtables.borrow().get(&(ty, trait_ref)) {
@@ -102,26 +94,22 @@ pub fn get_vtable(
     let nullptr = C_null(Type::i8p(cx));
 
     let (size, align) = cx.size_and_align_of(ty);
-    let mut components: Vec<_> = [
+    let glue_size_align = [
         callee::get_fn(cx, monomorphize::resolve_drop_in_place(cx.tcx, ty)),
         C_usize(cx, size.bytes()),
         C_usize(cx, align.abi())
-    ].iter().cloned().collect();
-
-    // do a look-up based on:
-    // ty
-    // trait_ref
-    //
-    // that gets us to a vtable for just that trait?
-
-    // so, super_predicates_of goes into all levels
-    // which doesn't necessarily matter? we just need to construct a graph
+    ];
 
     if let Some(trait_ref) = trait_ref {
-        let trait_ref_with_self = trait_ref.with_self_ty(tcx, ty);
-        let mut v: Vec<_> = vec![trait_ref_with_self];
-        v.extend(
-            tcx.super_predicates_of(trait_ref.def_id())
+
+        fn get_supertraits(
+            cx: &CodegenCx<'ll, 'tcx>,
+            trait_ref_with_self: ty::PolyTraitRef<'tcx>)
+            //-> impl Iterator<Item = ty::PolyTraitRef<'tcx>> + 'll
+            -> Vec<ty::PolyTraitRef<'tcx>>
+        {
+            let tcx = cx.tcx;
+            tcx.super_predicates_of(trait_ref_with_self.def_id())
                 .predicates.iter()
                 .map(|(p, _)| p.subst_supertrait(tcx, &trait_ref_with_self))
                 .map(|p| {
@@ -132,61 +120,75 @@ pub fn get_vtable(
                     } else {
                         bug!("expected trait, got {:?}", p)
                     }
-                }));
+                })
+                .collect()
+        }
 
-//        debug!("supertraits: ty={:?} trait_ref={:?} supertrait_refs={:?}",
-//               ty, trait_ref.with_self_ty(tcx, ty), supertrait_refs);
+        // Recurse through supertraits
+        // TODO: Issue with cycles? Mentioned in traits::... comment
+        // TODO: Avoid redundant vtables, traversals, and duplication in a
+        //       single vtable
+        fn recurse_through_supertraits<'ll, 'tcx, F>(
+            cx: &CodegenCx<'ll, 'tcx>,
+            trait_ref_with_self: ty::PolyTraitRef<'tcx>,
+            closure: &mut F)
+            where F: FnMut(&CodegenCx<'ll, 'tcx>, ty::PolyTraitRef<'tcx>, bool)
+        {
+            let supertraits = get_supertraits(cx, trait_ref_with_self);
 
-        debug!("supertraits: {:?}", v);
+            closure(cx, trait_ref_with_self, supertraits.is_empty());
 
-        //let s
-
-/*
-
-        for pred in tcx.super_predicates_of(trait_ref.def_id())
-                    .predicates {
-            if let (ty::Predicate::Trait(t), _) = pred {
-                // bad idea to call skip_binder?
-                let t = t.skip_binder().trait_ref;
-                debug!("super_predicates_of returned Trait. def_id: {:?}. substs: {:?}",
-                       t.def_id, t.substs);
-            } else {
-                let to_print = match pred {
-                    (ty::Predicate::Subtype(..), _) => "Subtype",
-                    (ty::Predicate::Trait(..), _) => "Trait",
-                    (ty::Predicate::RegionOutlives(..), _) => "RegionOutlives",
-                    (ty::Predicate::TypeOutlives(..), _) => "TypeOutlives",
-                    (ty::Predicate::Projection(..), _) => "Projection",
-                    (ty::Predicate::WellFormed(..), _) => "WellFormed",
-                    (ty::Predicate::ObjectSafe(..), _) => "ObjectSafe",
-                    (ty::Predicate::ClosureKind(..), _) => "ClosureKind",
-                    (ty::Predicate::ConstEvaluatable(..), _) => "ConstEvaluatable",
-                };
-                debug!("super_predicates_of returned {}", to_print);
+            // TODO: Is this step necessary or is the order already deterministic?
+            //       (including across compilation units)
+            let mut supertraits = supertraits;
+            supertraits.sort_by(|a, b| {
+                let (a, b) = (a.skip_binder(), b.skip_binder());
+                match a.def_id.cmp(&b.def_id) {
+                    ord @ Ordering::Less | ord @ Ordering::Greater => { return ord; }
+                    _ => ()
+                }
+                a.substs.cmp(&b.substs)
+            });
+            let supertraits = supertraits;
+            for supertrait in supertraits {
+                recurse_through_supertraits(cx, supertrait, closure);
             }
-        };
-*/
+        }
 
-        let trait_ref = trait_ref.with_self_ty(tcx, ty);
-        let methods = tcx.vtable_methods(trait_ref);
-        let methods = methods.iter().cloned().map(|opt_mth| {
-            opt_mth.map_or(nullptr, |(def_id, substs)| {
-                callee::resolve_and_get_fn(cx, def_id, substs)
-            })
+        let trait_ref_with_self = trait_ref.with_self_ty(tcx, ty);
+        let mut v = Vec::new();
+
+        recurse_through_supertraits(cx, trait_ref_with_self,
+            &mut |cx, trait_ref_with_self, is_leaf| {
+            if is_leaf {
+                debug!("get_vtable: Adding [glue, size, align]");
+                v.extend(glue_size_align.iter());
+            }
+            debug!("get_vtable: Adding methods from {:?}", trait_ref_with_self);
+            let starting_len = v.len();
+            v.extend(
+                own_vtable_methods(cx.tcx, trait_ref_with_self)
+                .map(|opt| { opt.map_or(nullptr, |(def_id, substs)| {
+                    callee::resolve_and_get_fn(cx, def_id, substs)
+                })}));
+            debug!("get_vtable: Added {:?} methods", v.len() - starting_len);
         });
-        components.extend(methods);
+
+        let vtable_const = C_struct(cx, &v, false);
+        let align = cx.data_layout().pointer_align;
+        let vtable = consts::addr_of(cx, vtable_const, align, Some("vtable"));
+
+        // TODO: Fix this, I'm sure it's wrong now
+        //debuginfo::create_vtable_metadata(cx, ty, vtable);
+
+        cx.vtables.borrow_mut().insert((ty, Some(trait_ref)), vtable);
+        vtable
+    } else {
+        let vtable_const = C_struct(cx, &glue_size_align, false);
+        let align = cx.data_layout().pointer_align;
+        let vtable = consts::addr_of(cx, vtable_const, align, Some("vtable"));
+        debuginfo::create_vtable_metadata(cx, ty, vtable);
+        cx.vtables.borrow_mut().insert((ty, trait_ref), vtable);
+        vtable
     }
-
-    let vtable_const = C_struct(cx, &components, false);
-    let align = cx.data_layout().pointer_align;
-    let vtable = consts::addr_of(cx, vtable_const, align, Some("vtable"));
-
-// TODO: I'm sure i have to fix this after so... commenting it out for now
-    debuginfo::create_vtable_metadata(cx, ty, vtable);
-
-
-
-
-    cx.vtables.borrow_mut().insert((ty, trait_ref), vtable);
-    vtable
 }
