@@ -19,7 +19,7 @@ use value::Value;
 
 use rustc::ty::{self, Ty};
 use rustc::ty::layout::HasDataLayout;
-use rustc::traits::{own_vtable_methods, recurse_through_supertraits};
+use rustc::traits::{recurse_through_supertraits};
 use debuginfo;
 
 #[derive(Copy, Clone, Debug)]
@@ -114,9 +114,9 @@ pub fn get_vtable(
             debug!("get_vtable: Adding methods from {:?}", trait_ref_with_self);
             let starting_len = v.len();
             v.extend(
-                own_vtable_methods(cx.tcx, trait_ref_with_self)
-                .map(|(def_id, substs)| {
-                    callee::resolve_and_get_fn(cx, def_id, substs)
+                cx.tcx.own_vtable_methods(trait_ref_with_self)
+                .iter().map(|(def_id, substs)| {
+                    callee::resolve_and_get_fn(cx, *def_id, substs)
                 }));
             debug!("get_vtable: Added {:?} methods", v.len() - starting_len);
         });

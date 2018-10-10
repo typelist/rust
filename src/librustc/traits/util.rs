@@ -16,6 +16,8 @@ use util::nodemap::FxHashSet;
 use hir::{self};
 use traits::specialize::specialization_graph::NodeItem;
 
+use super::{normalize_and_test_predicates};
+
 use std::cmp::Ordering;
 
 use super::{Obligation, ObligationCause, PredicateObligation, SelectionContext, Normalized};
@@ -526,12 +528,68 @@ impl<'a, 'gcx, 'tcx> TyCtxt<'a, 'gcx, 'tcx> {
             .collect()
     }
 
+    pub fn own_vtable_methods(self, trait_ref: ty::PolyTraitRef<'tcx>)
+        //-> impl Iterator<Item = (DefId, &'tcx Substs<'tcx>)> + 'tcx + 'a + 'gcx
+        -> Vec<(DefId, &'tcx Substs<'tcx>)>
+    {
+        self.associated_items(trait_ref.def_id())
+            // Skip over associated types and constants.
+            .filter(|item| item.kind == ty::AssociatedKind::Method)
+            // Now list each method's DefId and Substs (for within its trait).
+            // If the method can never be called from this object, produce None.
+            .filter_map(move |trait_method| {
+                debug!("own_vtable_methods: trait_method={:?}", trait_method);
+                let def_id = trait_method.def_id;
+    
+                // Some methods cannot be called on an object; skip those.
+                if !self.is_vtable_safe_method(trait_ref.def_id(), &trait_method) {
+                    debug!("own_vtable_methods: not vtable safe");
+                    return None;
+                }
+    
+                // the method may have some early-bound lifetimes, add
+                // regions for those
+                let substs = trait_ref.map_bound(|trait_ref|
+                    Substs::for_item(self, def_id, |param, _|
+                        match param.kind {
+                            ty::GenericParamDefKind::Lifetime => self.types.re_erased.into(),
+                            ty::GenericParamDefKind::Type {..} => {
+                                trait_ref.substs[param.index as usize]
+                            }
+                        }
+                    )
+                );
+    
+                // the trait type may have higher-ranked lifetimes in it;
+                // so erase them if they appear, so that we get the type
+                // at some particular call site
+                let substs = self.normalize_erasing_late_bound_regions(
+                    ty::ParamEnv::reveal_all(),
+                    &substs
+                );
+    
+                // It's possible that the method relies on where clauses that
+                // do not hold for this particular set of type parameters.
+                // Note that this method could then never be called, so we
+                // do not want to try and codegen it, in that case (see #23435).
+                let predicates = self.predicates_of(def_id).instantiate_own(self, substs);
+                if !normalize_and_test_predicates(self, predicates.predicates) {
+                    debug!("vtable_methods: predicates do not hold");
+                    return None;
+                }
+    
+                Some((def_id, substs))
+            })
+            .collect()
+    }
+
     /// Given a trait `trait_ref`, returns the number of vtable entries that
     /// come from `trait_ref`, excluding its supertraits. Used in computing the
     /// vtable base for an upcast trait of a trait object. Note that the vtable
     /// base is NOT just the sum of count_own_vtable_entries for supertraits,
     /// but also includes extra words for drop glue, size, and alignment.
     pub fn count_own_vtable_entries(self, trait_ref: ty::PolyTraitRef<'tcx>) -> usize {
+/*
         let mut entries = 0;
         // Count number of methods and add them to the total offset.
         // Skip over associated types and constants.
@@ -541,6 +599,8 @@ impl<'a, 'gcx, 'tcx> TyCtxt<'a, 'gcx, 'tcx> {
             }
         }
         entries
+*/
+        self.own_vtable_methods(trait_ref).iter().count()
     }
 
     /// Given an upcast trait object described by `object`, returns the
@@ -550,11 +610,16 @@ impl<'a, 'gcx, 'tcx> TyCtxt<'a, 'gcx, 'tcx> {
                                                 object: &super::VtableObjectData<'tcx, N>,
                                                 method_def_id: DefId) -> usize {
 
-        // TODO: make this match sort order
-
         // Count number of methods preceding the one we are selecting and
         // add them to the total offset.
         // Skip over associated types and constants.
+
+        if let Some(idx) = self.own_vtable_methods(object.upcast_trait_ref)
+                           .iter().position(|item| item.0 == method_def_id) {
+            return object.vtable_base + idx;
+        }
+
+/*
         let mut entries = object.vtable_base;
         for trait_item in self.associated_items(object.upcast_trait_ref.def_id()) {
             if trait_item.def_id == method_def_id {
@@ -566,6 +631,7 @@ impl<'a, 'gcx, 'tcx> TyCtxt<'a, 'gcx, 'tcx> {
                 entries += 1;
             }
         }
+*/
 
         bug!("get_vtable_index_of_object_method: {:?} was not found",
              method_def_id);
