@@ -883,6 +883,61 @@ fn substitute_normalize_and_test_predicates<'a, 'tcx>(tcx: TyCtxt<'a, 'tcx, 'tcx
     result
 }
 
+pub fn own_vtable_methods(
+    tcx: TyCtxt<'a, 'tcx, 'tcx>,
+    trait_ref: ty::PolyTraitRef<'tcx>)
+-> impl Iterator<Item = Option<(DefId, &'tcx Substs<'tcx>)>> + 'a
+{
+    let trait_methods = tcx.associated_items(trait_ref.def_id())
+        .filter(|item| item.kind == ty::AssociatedKind::Method);
+
+    // Now list each method's DefId and Substs (for within its trait).
+    // If the method can never be called from this object, produce None.
+    trait_methods.map(move |trait_method| {
+        debug!("vtable_methods: trait_method={:?}", trait_method);
+        let def_id = trait_method.def_id;
+
+        // Some methods cannot be called on an object; skip those.
+        if !tcx.is_vtable_safe_method(trait_ref.def_id(), &trait_method) {
+            debug!("vtable_methods: not vtable safe");
+            return None;
+        }
+
+        // the method may have some early-bound lifetimes, add
+        // regions for those
+        let substs = trait_ref.map_bound(|trait_ref|
+            Substs::for_item(tcx, def_id, |param, _|
+                match param.kind {
+                    GenericParamDefKind::Lifetime => tcx.types.re_erased.into(),
+                    GenericParamDefKind::Type {..} => {
+                        trait_ref.substs[param.index as usize]
+                    }
+                }
+            )
+        );
+
+        // the trait type may have higher-ranked lifetimes in it;
+        // so erase them if they appear, so that we get the type
+        // at some particular call site
+        let substs = tcx.normalize_erasing_late_bound_regions(
+            ty::ParamEnv::reveal_all(),
+            &substs
+        );
+
+        // It's possible that the method relies on where clauses that
+        // do not hold for this particular set of type parameters.
+        // Note that this method could then never be called, so we
+        // do not want to try and codegen it, in that case (see #23435).
+        let predicates = tcx.predicates_of(def_id).instantiate_own(tcx, substs);
+        if !normalize_and_test_predicates(tcx, predicates.predicates) {
+            debug!("vtable_methods: predicates do not hold");
+            return None;
+        }
+
+        Some((def_id, substs))
+    })
+}
+
 /// Given a trait `trait_ref`, iterates the vtable entries
 /// that come from `trait_ref`, including its supertraits.
 #[inline] // FIXME(#35870) Avoid closures being unexported due to impl Trait.
@@ -895,54 +950,7 @@ fn vtable_methods<'a, 'tcx>(
 
     Lrc::new(
         supertraits(tcx, trait_ref).flat_map(move |trait_ref| {
-            let trait_methods = tcx.associated_items(trait_ref.def_id())
-                .filter(|item| item.kind == ty::AssociatedKind::Method);
-
-            // Now list each method's DefId and Substs (for within its trait).
-            // If the method can never be called from this object, produce None.
-            trait_methods.map(move |trait_method| {
-                debug!("vtable_methods: trait_method={:?}", trait_method);
-                let def_id = trait_method.def_id;
-
-                // Some methods cannot be called on an object; skip those.
-                if !tcx.is_vtable_safe_method(trait_ref.def_id(), &trait_method) {
-                    debug!("vtable_methods: not vtable safe");
-                    return None;
-                }
-
-                // the method may have some early-bound lifetimes, add
-                // regions for those
-                let substs = trait_ref.map_bound(|trait_ref|
-                    Substs::for_item(tcx, def_id, |param, _|
-                        match param.kind {
-                            GenericParamDefKind::Lifetime => tcx.types.re_erased.into(),
-                            GenericParamDefKind::Type {..} => {
-                                trait_ref.substs[param.index as usize]
-                            }
-                        }
-                    )
-                );
-
-                // the trait type may have higher-ranked lifetimes in it;
-                // so erase them if they appear, so that we get the type
-                // at some particular call site
-                let substs = tcx.normalize_erasing_late_bound_regions(
-                    ty::ParamEnv::reveal_all(),
-                    &substs
-                );
-
-                // It's possible that the method relies on where clauses that
-                // do not hold for this particular set of type parameters.
-                // Note that this method could then never be called, so we
-                // do not want to try and codegen it, in that case (see #23435).
-                let predicates = tcx.predicates_of(def_id).instantiate_own(tcx, substs);
-                if !normalize_and_test_predicates(tcx, predicates.predicates) {
-                    debug!("vtable_methods: predicates do not hold");
-                    return None;
-                }
-
-                Some((def_id, substs))
-            })
+            own_vtable_methods(tcx, trait_ref)
         }).collect()
     )
 }
