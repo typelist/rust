@@ -646,6 +646,9 @@ impl FunctionCx<'a, 'll, 'tcx> {
                     let mut op = self.codegen_operand(&bx, arg);
                     if let (0, Some(ty::InstanceDef::Virtual(def_id))) = (i, def) {
 
+                        // TODO: Is def_id unambiguous enough? Or did we manage to
+                        //       discard necessary information for the 'diamond' case?
+
                         let _unused = def_id;
                         let idx = 0; // THIS IS A PLACEHOLDER!!!
 
