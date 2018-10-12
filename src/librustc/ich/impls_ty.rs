@@ -1003,9 +1003,8 @@ impl<'a, 'gcx> HashStable<StableHashingContext<'a>> for ty::InstanceDef<'gcx> {
                 def_id.hash_stable(hcx, hasher);
                 ty.hash_stable(hcx, hasher);
             }
-            ty::InstanceDef::Virtual(def_id, n) => {
+            ty::InstanceDef::Virtual(def_id) => {
                 def_id.hash_stable(hcx, hasher);
-                n.hash_stable(hcx, hasher);
             }
             ty::InstanceDef::ClosureOnceShim { call_once } => {
                 call_once.hash_stable(hcx, hasher);
@@ -1188,11 +1187,9 @@ for traits::VtableObjectData<'gcx, N> where N: HashStable<StableHashingContext<'
                                           hasher: &mut StableHasher<W>) {
         let traits::VtableObjectData {
             upcast_trait_ref,
-            vtable_base,
             ref nested,
         } = *self;
         upcast_trait_ref.hash_stable(hcx, hasher);
-        vtable_base.hash_stable(hcx, hasher);
         nested.hash_stable(hcx, hasher);
     }
 }

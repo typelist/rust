@@ -2988,38 +2988,26 @@ impl<'cx, 'gcx, 'tcx> SelectionContext<'cx, 'gcx, 'tcx> {
 
         let mut upcast_trait_ref = None;
         let mut nested = vec![];
-        let vtable_base;
 
-        {
-            let tcx = self.tcx();
-
-            // We want to find the first supertrait in the list of
-            // supertraits that we can unify with, and do that
-            // unification. We know that there is exactly one in the list
-            // where we can unify because otherwise select would have
-            // reported an ambiguity. (When we do find a match, also
-            // record it for later.)
-            let nonmatching = util::supertraits(tcx, poly_trait_ref).take_while(
-                |&t| match self.commit_if_ok(|this, _| this.match_poly_trait_ref(obligation, t)) {
-                    Ok(obligations) => {
-                        upcast_trait_ref = Some(t);
-                        nested.extend(obligations);
-                        false
-                    }
-                    Err(_) => true,
-                },
-            );
-
-            // Additionally, for each of the nonmatching predicates that
-            // we pass over, we sum up the set of number of vtable
-            // entries, so that we can compute the offset for the selected
-            // trait.
-            vtable_base = nonmatching.map(|t| tcx.count_own_vtable_entries(t)).sum();
-        }
+        // We want to find the first supertrait in the list of
+        // supertraits that we can unify with, and do that
+        // unification. We know that there is exactly one in the list
+        // where we can unify because otherwise select would have
+        // reported an ambiguity. (When we do find a match, also
+        // record it for later.)
+        let _ = util::supertraits(self.tcx(), poly_trait_ref).take_while(
+            |&t| match self.commit_if_ok(|this, _| this.match_poly_trait_ref(obligation, t)) {
+                Ok(obligations) => {
+                    upcast_trait_ref = Some(t);
+                    nested.extend(obligations);
+                    false
+                }
+                Err(_) => true,
+            },
+        );
 
         VtableObjectData {
             upcast_trait_ref: upcast_trait_ref.unwrap(),
-            vtable_base,
             nested,
         }
     }

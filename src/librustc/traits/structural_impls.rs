@@ -116,8 +116,8 @@ impl<'tcx, N: fmt::Debug> fmt::Debug for traits::VtableObjectData<'tcx, N> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "VtableObject(upcast={:?}, vtable_base={}, nested={:?})",
-            self.upcast_trait_ref, self.vtable_base, self.nested
+            "VtableObject(upcast={:?}, nested={:?})",
+            self.upcast_trait_ref, self.nested
         )
     }
 }
@@ -314,12 +314,10 @@ impl<'a, 'tcx> Lift<'tcx> for traits::Vtable<'a, ()> {
             traits::VtableBuiltin(n) => Some(traits::VtableBuiltin(n)),
             traits::VtableObject(traits::VtableObjectData {
                 upcast_trait_ref,
-                vtable_base,
                 nested,
             }) => tcx.lift(&upcast_trait_ref).map(|trait_ref|
                 traits::VtableObject(traits::VtableObjectData {
                     upcast_trait_ref: trait_ref,
-                    vtable_base,
                     nested,
                 })
             ),
@@ -377,7 +375,7 @@ BraceStructTypeFoldableImpl! {
 
 BraceStructTypeFoldableImpl! {
     impl<'tcx, N> TypeFoldable<'tcx> for traits::VtableObjectData<'tcx, N> {
-        upcast_trait_ref, vtable_base, nested
+        upcast_trait_ref, nested
     } where N: TypeFoldable<'tcx>
 }
 

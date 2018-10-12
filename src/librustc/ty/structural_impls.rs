@@ -623,8 +623,8 @@ impl<'a, 'tcx> Lift<'tcx> for ty::InstanceDef<'a> {
                 Some(ty::InstanceDef::Intrinsic(def_id)),
             ty::InstanceDef::FnPtrShim(def_id, ref ty) =>
                 Some(ty::InstanceDef::FnPtrShim(def_id, tcx.lift(ty)?)),
-            ty::InstanceDef::Virtual(def_id, n) =>
-                Some(ty::InstanceDef::Virtual(def_id, n)),
+            ty::InstanceDef::Virtual(def_id) =>
+                Some(ty::InstanceDef::Virtual(def_id)),
             ty::InstanceDef::ClosureOnceShim { call_once } =>
                 Some(ty::InstanceDef::ClosureOnceShim { call_once }),
             ty::InstanceDef::DropGlue(def_id, ref ty) =>
@@ -793,9 +793,8 @@ impl<'tcx> TypeFoldable<'tcx> for ty::instance::Instance<'tcx> {
                     did.fold_with(folder),
                     ty.fold_with(folder),
                 ),
-                Virtual(did, i) => Virtual(
+                Virtual(did) => Virtual(
                     did.fold_with(folder),
-                    i,
                 ),
                 ClosureOnceShim { call_once } => ClosureOnceShim {
                     call_once: call_once.fold_with(folder),
@@ -816,7 +815,7 @@ impl<'tcx> TypeFoldable<'tcx> for ty::instance::Instance<'tcx> {
         use ty::InstanceDef::*;
         self.substs.visit_with(visitor) ||
         match self.def {
-            Item(did) | Intrinsic(did) | Virtual(did, _) => {
+            Item(did) | Intrinsic(did) | Virtual(did) => {
                 did.visit_with(visitor)
             },
             FnPtrShim(did, ty) | CloneShim(did, ty) => {

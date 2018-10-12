@@ -461,46 +461,6 @@ impl<'a, 'gcx, 'tcx> TyCtxt<'a, 'gcx, 'tcx> {
             .collect()
     }
 
-    /// Given a trait `trait_ref`, returns the number of vtable entries
-    /// that come from `trait_ref`, excluding its supertraits. Used in
-    /// computing the vtable base for an upcast trait of a trait object.
-    pub fn count_own_vtable_entries(self, trait_ref: ty::PolyTraitRef<'tcx>) -> usize {
-        let mut entries = 0;
-        // Count number of methods and add them to the total offset.
-        // Skip over associated types and constants.
-        for trait_item in self.associated_items(trait_ref.def_id()) {
-            if trait_item.kind == ty::AssociatedKind::Method {
-                entries += 1;
-            }
-        }
-        entries
-    }
-
-    /// Given an upcast trait object described by `object`, returns the
-    /// index of the method `method_def_id` (which should be part of
-    /// `object.upcast_trait_ref`) within the vtable for `object`.
-    pub fn get_vtable_index_of_object_method<N>(self,
-                                                object: &super::VtableObjectData<'tcx, N>,
-                                                method_def_id: DefId) -> usize {
-        // Count number of methods preceding the one we are selecting and
-        // add them to the total offset.
-        // Skip over associated types and constants.
-        let mut entries = object.vtable_base;
-        for trait_item in self.associated_items(object.upcast_trait_ref.def_id()) {
-            if trait_item.def_id == method_def_id {
-                // The item with the ID we were given really ought to be a method.
-                assert_eq!(trait_item.kind, ty::AssociatedKind::Method);
-                return entries;
-            }
-            if trait_item.kind == ty::AssociatedKind::Method {
-                entries += 1;
-            }
-        }
-
-        bug!("get_vtable_index_of_object_method: {:?} was not found",
-             method_def_id);
-    }
-
     pub fn closure_trait_ref_and_return_type(self,
         fn_trait_def_id: DefId,
         self_ty: Ty<'tcx>,

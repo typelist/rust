@@ -538,11 +538,6 @@ pub struct VtableObjectData<'tcx, N> {
     /// `Foo` upcast to the obligation trait. This will be some supertrait of `Foo`.
     pub upcast_trait_ref: ty::PolyTraitRef<'tcx>,
 
-    /// The vtable is formed by concatenating together the method lists of
-    /// the base object trait and all supertraits; this is the start of
-    /// `upcast_trait_ref`'s methods in that vtable.
-    pub vtable_base: usize,
-
     pub nested: Vec<N>,
 }
 
@@ -1030,7 +1025,6 @@ impl<'tcx, N> Vtable<'tcx, N> {
             }),
             VtableObject(o) => VtableObject(VtableObjectData {
                 upcast_trait_ref: o.upcast_trait_ref,
-                vtable_base: o.vtable_base,
                 nested: o.nested.into_iter().map(f).collect(),
             }),
             VtableAutoImpl(d) => VtableAutoImpl(VtableAutoImplData {

@@ -644,7 +644,11 @@ impl FunctionCx<'a, 'll, 'tcx> {
 
                 for (i, arg) in first_args.iter().enumerate() {
                     let mut op = self.codegen_operand(&bx, arg);
-                    if let (0, Some(ty::InstanceDef::Virtual(_, idx))) = (i, def) {
+                    if let (0, Some(ty::InstanceDef::Virtual(def_id))) = (i, def) {
+
+                        let _unused = def_id;
+                        let idx = 0; // THIS IS A PLACEHOLDER!!!
+
                         if let Pair(data_ptr, meta) = op.val {
                             llfn = Some(meth::VirtualIndex::from_index(idx)
                                 .get_fn(&bx, meta, &fn_ty));

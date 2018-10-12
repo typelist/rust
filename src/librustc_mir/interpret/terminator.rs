@@ -384,7 +384,9 @@ impl<'a, 'mir, 'tcx, M: Machine<'a, 'mir, 'tcx>> EvalContext<'a, 'mir, 'tcx, M> 
                 }
             }
             // cannot use the shim here, because that will only result in infinite recursion
-            ty::InstanceDef::Virtual(_, idx) => {
+            ty::InstanceDef::Virtual(_) => {
+                let idx = 0; // TODO: THIS IS A PLACEHOLDER!!!!!
+
                 let ptr_size = self.pointer_size();
                 let ptr_align = self.tcx.data_layout.pointer_align;
                 let ptr = self.ref_to_mplace(self.read_value(args[0])?)?;
