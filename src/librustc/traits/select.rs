@@ -2995,16 +2995,16 @@ impl<'cx, 'gcx, 'tcx> SelectionContext<'cx, 'gcx, 'tcx> {
         // where we can unify because otherwise select would have
         // reported an ambiguity. (When we do find a match, also
         // record it for later.)
-        let _ = util::supertraits(self.tcx(), poly_trait_ref).take_while(
-            |&t| match self.commit_if_ok(|this, _| this.match_poly_trait_ref(obligation, t)) {
+        for t in util::supertraits(self.tcx(), poly_trait_ref) {
+            match self.commit_if_ok(|this, _| this.match_poly_trait_ref(obligation, t)) {
                 Ok(obligations) => {
                     upcast_trait_ref = Some(t);
                     nested.extend(obligations);
-                    false
+                    break;
                 }
-                Err(_) => true,
-            },
-        );
+                Err(_) => {}
+            }
+        }
 
         VtableObjectData {
             upcast_trait_ref: upcast_trait_ref.unwrap(),
