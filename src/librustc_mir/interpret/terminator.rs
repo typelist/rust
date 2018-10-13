@@ -384,7 +384,7 @@ impl<'a, 'mir, 'tcx, M: Machine<'a, 'mir, 'tcx>> EvalContext<'a, 'mir, 'tcx, M> 
                 }
             }
             // cannot use the shim here, because that will only result in infinite recursion
-            ty::InstanceDef::Virtual(_) => {
+            ty::InstanceDef::Virtual(_trait_def_id, _method_def_id) => {
                 let idx = 0; // TODO: THIS IS A PLACEHOLDER!!!!!
 
                 let ptr_size = self.pointer_size();

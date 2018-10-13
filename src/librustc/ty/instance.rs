@@ -32,7 +32,7 @@ pub enum InstanceDef<'tcx> {
     FnPtrShim(DefId, Ty<'tcx>),
 
     /// <Trait as Trait>::fn
-    Virtual(DefId),
+    Virtual(DefId, DefId),
 
     /// <[mut closure] as FnOnce>::call_once
     ClosureOnceShim { call_once: DefId },
@@ -64,7 +64,7 @@ impl<'tcx> InstanceDef<'tcx> {
         match *self {
             InstanceDef::Item(def_id) |
             InstanceDef::FnPtrShim(def_id, _) |
-            InstanceDef::Virtual(def_id) |
+            InstanceDef::Virtual(_, def_id) |
             InstanceDef::Intrinsic(def_id, ) |
             InstanceDef::ClosureOnceShim { call_once: def_id } |
             InstanceDef::DropGlue(def_id, _) |
@@ -288,9 +288,9 @@ fn resolve_associated_item<'a, 'tcx>(
                 substs: rcvr_substs
             })
         }
-        traits::VtableObject(..) => {
+        traits::VtableObject(ref data) => {
             Some(Instance {
-                def: ty::InstanceDef::Virtual(def_id),
+                def: ty::InstanceDef::Virtual(data.upcast_trait_ref.def_id(), def_id),
                 substs: rcvr_substs
             })
         }

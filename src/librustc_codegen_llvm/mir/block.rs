@@ -644,16 +644,9 @@ impl FunctionCx<'a, 'll, 'tcx> {
 
                 for (i, arg) in first_args.iter().enumerate() {
                     let mut op = self.codegen_operand(&bx, arg);
-                    if let (0, Some(ty::InstanceDef::Virtual(def_id))) = (i, def) {
-
-                        // TODO: Is def_id unambiguous enough? Or did we manage to
-                        //       discard necessary information for the 'diamond' case?
-
-                        let _unused = def_id;
-                        let idx = 0; // THIS IS A PLACEHOLDER!!!
-
+                    if let (0, Some(ty::InstanceDef::Virtual(trait_def_id, method_def_id))) = (i, def) {
                         if let Pair(data_ptr, meta) = op.val {
-                            llfn = Some(meth::VirtualIndex::from_index(idx)
+                            llfn = Some(meth::VirtualIndex::lookup(trait_def_id, method_def_id)
                                 .get_fn(&bx, meta, &fn_ty));
                             llargs.push(data_ptr);
                             continue;

@@ -1003,8 +1003,9 @@ impl<'a, 'gcx> HashStable<StableHashingContext<'a>> for ty::InstanceDef<'gcx> {
                 def_id.hash_stable(hcx, hasher);
                 ty.hash_stable(hcx, hasher);
             }
-            ty::InstanceDef::Virtual(def_id) => {
-                def_id.hash_stable(hcx, hasher);
+            ty::InstanceDef::Virtual(trait_def_id, method_def_id) => {
+                trait_def_id.hash_stable(hcx, hasher);
+                method_def_id.hash_stable(hcx, hasher);
             }
             ty::InstanceDef::ClosureOnceShim { call_once } => {
                 call_once.hash_stable(hcx, hasher);

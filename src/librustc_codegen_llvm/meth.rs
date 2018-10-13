@@ -17,6 +17,7 @@ use monomorphize;
 use type_::Type;
 use value::Value;
 
+use rustc::hir::def_id::DefId;
 use rustc::ty::{self, Ty};
 use rustc::ty::layout::HasDataLayout;
 use debuginfo;
@@ -27,10 +28,12 @@ pub struct VirtualIndex(u64);
 pub const DESTRUCTOR: VirtualIndex = VirtualIndex(0);
 pub const SIZE: VirtualIndex = VirtualIndex(1);
 pub const ALIGN: VirtualIndex = VirtualIndex(2);
+const VTABLE_HEADER: u64 = 3;
 
 impl<'a, 'tcx> VirtualIndex {
-    pub fn from_index(index: usize) -> Self {
-        VirtualIndex(index as u64 + 3)
+    pub fn lookup(_trait_def_id: DefId, _method_def_id: DefId) -> Self {
+
+        VirtualIndex(0 + VTABLE_HEADER)
     }
 
     pub fn get_fn(self, bx: &Builder<'a, 'll, 'tcx>,
