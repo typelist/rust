@@ -35,7 +35,6 @@
 //! codegen unit:
 //!
 //! - Constants
-//! - Vtables
 //! - Object Shims
 //!
 //!
@@ -133,7 +132,7 @@
 //! #### Unsizing Casts
 //! A subtle way of introducing neighbor edges is by casting to a trait object.
 //! Since the resulting fat-pointer contains a reference to a vtable, we need to
-//! instantiate all object-save methods of the trait, as we need to store
+//! instantiate all object-safe methods of the trait, as we need to store
 //! pointers to these functions even if they never get called anywhere. This can
 //! be seen as a special case of taking a function reference.
 //!
@@ -548,10 +547,10 @@ impl<'a, 'tcx> MirVisitor<'tcx> for MirNeighborCollector<'a, 'tcx> {
                 // from a fixed sized array to a slice. But we are only
                 // interested in things that produce a vtable.
                 if target_ty.is_trait() && !source_ty.is_trait() {
-                    create_mono_items_for_vtable_methods(self.tcx,
-                                                         target_ty,
-                                                         source_ty,
-                                                         self.output);
+                    create_mono_items_for_vtable(self.tcx,
+                                                 target_ty,
+                                                 source_ty,
+                                                 self.output);
                 }
             }
             mir::Rvalue::Cast(mir::CastKind::ReifyFnPointer, ref operand, _) => {
@@ -897,12 +896,18 @@ fn create_fn_mono_item<'a, 'tcx>(instance: Instance<'tcx>) -> MonoItem<'tcx> {
     MonoItem::Fn(instance)
 }
 
-/// Creates a `MonoItem` for each method that is referenced by the vtable for
-/// the given trait/impl pair.
-fn create_mono_items_for_vtable_methods<'a, 'tcx>(tcx: TyCtxt<'a, 'tcx, 'tcx>,
-                                                  trait_ty: Ty<'tcx>,
-                                                  impl_ty: Ty<'tcx>,
-                                                  output: &mut Vec<MonoItem<'tcx>>) {
+fn create_vtable_mono_item<'a, 'tcx>(impl_ty: Ty<'tcx>, trait_ty: Ty<'tcx>)
+    -> MonoItem<'tcx> {
+    debug!("create_vtable_mono_item(impl_ty={}, trait_ty={})", impl_ty, trait_ty);
+    MonoItem::Vtable(impl_ty, trait_ty)
+}
+
+/// Creates a `MonoItem` for the vtable for the given trait/impl pair, and one
+/// for each method referenced by that vtable
+fn create_mono_items_for_vtable<'a, 'tcx>(tcx: TyCtxt<'a, 'tcx, 'tcx>,
+                                          trait_ty: Ty<'tcx>,
+                                          impl_ty: Ty<'tcx>,
+                                          output: &mut Vec<MonoItem<'tcx>>) {
     assert!(!trait_ty.needs_subst() && !trait_ty.has_escaping_regions() &&
             !impl_ty.needs_subst() && !impl_ty.has_escaping_regions());
 
@@ -922,6 +927,7 @@ fn create_mono_items_for_vtable_methods<'a, 'tcx>(tcx: TyCtxt<'a, 'tcx, 'tcx>,
                 .filter(|&instance| should_monomorphize_locally(tcx, &instance))
                 .map(|instance| create_fn_mono_item(instance));
             output.extend(methods);
+            output.push(create_vtable_mono_item(impl_ty, trait_ty));
         }
         // Also add the destructor
         visit_drop_use(tcx, impl_ty, false, output);

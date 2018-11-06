@@ -25,6 +25,7 @@ pub enum MonoItem<'tcx> {
     Fn(Instance<'tcx>),
     Static(DefId),
     GlobalAsm(NodeId),
+    Vtable(Ty<'tcx>, Ty<'tcx>),
 }
 
 impl<'tcx> MonoItem<'tcx> {

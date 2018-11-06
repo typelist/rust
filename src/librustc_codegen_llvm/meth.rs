@@ -25,10 +25,13 @@ use debuginfo;
 #[derive(Copy, Clone, Debug)]
 pub struct VirtualIndex(u64);
 
+
 pub const DESTRUCTOR: VirtualIndex = VirtualIndex(0);
 pub const SIZE: VirtualIndex = VirtualIndex(1);
 pub const ALIGN: VirtualIndex = VirtualIndex(2);
 const VTABLE_HEADER: u64 = 3;
+
+
 
 impl<'a, 'tcx> VirtualIndex {
     pub fn lookup(_trait_def_id: DefId, _method_def_id: DefId) -> Self {

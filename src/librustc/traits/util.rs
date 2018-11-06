@@ -15,6 +15,7 @@ use ty::outlives::Component;
 use util::nodemap::FxHashSet;
 use hir::{self};
 use traits::specialize::specialization_graph::NodeItem;
+use collections::VecDeque;
 
 use super::{Obligation, ObligationCause, PredicateObligation, SelectionContext, Normalized};
 
@@ -90,36 +91,43 @@ impl<'a, 'gcx, 'tcx> PredicateSet<'a, 'gcx, 'tcx> {
 /// 'static`.
 pub struct Elaborator<'a, 'gcx: 'a+'tcx, 'tcx: 'a> {
     stack: Vec<ty::Predicate<'tcx>>,
+    queue: VecDeque<ty::Predicate<'tcx>>,
     visited: PredicateSet<'a, 'gcx, 'tcx>,
+    allow_trait_repeat: bool,
 }
 
 pub fn elaborate_trait_ref<'cx, 'gcx, 'tcx>(
     tcx: TyCtxt<'cx, 'gcx, 'tcx>,
-    trait_ref: ty::PolyTraitRef<'tcx>)
+    trait_ref: ty::PolyTraitRef<'tcx>,
+    allow_repeat: bool)
     -> Elaborator<'cx, 'gcx, 'tcx>
 {
-    elaborate_predicates(tcx, vec![trait_ref.to_predicate()])
+    elaborate_predicates(tcx, vec![trait_ref.to_predicate()], allow_repeat)
 }
 
 pub fn elaborate_trait_refs<'cx, 'gcx, 'tcx>(
     tcx: TyCtxt<'cx, 'gcx, 'tcx>,
-    trait_refs: &[ty::PolyTraitRef<'tcx>])
+    trait_refs: &[ty::PolyTraitRef<'tcx>],
+    allow_repeat: bool)
     -> Elaborator<'cx, 'gcx, 'tcx>
 {
     let predicates = trait_refs.iter()
                                .map(|trait_ref| trait_ref.to_predicate())
                                .collect();
-    elaborate_predicates(tcx, predicates)
+    elaborate_predicates(tcx, predicates, false)
 }
 
 pub fn elaborate_predicates<'cx, 'gcx, 'tcx>(
     tcx: TyCtxt<'cx, 'gcx, 'tcx>,
-    mut predicates: Vec<ty::Predicate<'tcx>>)
+    predicates: Vec<ty::Predicate<'tcx>>,
+    allow_repeat: bool)
     -> Elaborator<'cx, 'gcx, 'tcx>
 {
     let mut visited = PredicateSet::new(tcx);
-    predicates.retain(|pred| visited.insert(pred));
-    Elaborator { stack: predicates, visited: visited }
+    Elaborator { stack: vec![],
+                 queue: VecDeque::from(predicates),
+                 visited: visited,
+                 allow_repeat: allow_repeat }
 }
 
 impl<'cx, 'gcx, 'tcx> Elaborator<'cx, 'gcx, 'tcx> {
@@ -244,6 +252,10 @@ impl<'cx, 'gcx, 'tcx> Iterator for Elaborator<'cx, 'gcx, 'tcx> {
     }
 
     fn next(&mut self) -> Option<ty::Predicate<'tcx>> {
+//    predicates.retain(|pred| visited.insert(pred));
+
+        self.queue.pop_back(
+
         // Extract next item from top-most stack frame, if any.
         let next_predicate = match self.stack.pop() {
             Some(predicate) => predicate,
@@ -267,7 +279,14 @@ pub fn supertraits<'cx, 'gcx, 'tcx>(tcx: TyCtxt<'cx, 'gcx, 'tcx>,
                                     trait_ref: ty::PolyTraitRef<'tcx>)
                                     -> Supertraits<'cx, 'gcx, 'tcx>
 {
-    elaborate_trait_ref(tcx, trait_ref).filter_to_traits()
+    elaborate_trait_ref(tcx, trait_ref, false).filter_to_traits()
+}
+
+pub fn supertraits_tree<'cx, 'gcx, 'tcx>(tcx: TyCtxt<'cx, 'gcx, 'tcx>,
+                                         trait_ref: ty::PolyTraitRef<'tcx>)
+                                         -> Supertraits<'cx, 'gcx, 'tcx>
+{
+    elaborate_trait_ref(tcx, trait_ref, true).filter_to_traits()
 }
 
 pub fn transitive_bounds<'cx, 'gcx, 'tcx>(tcx: TyCtxt<'cx, 'gcx, 'tcx>,
